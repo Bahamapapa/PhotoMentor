@@ -88,8 +88,13 @@ async def upload_image(
         print("==> Контент:", content[:200] + "..." if len(content) > 200 else content)
 
         if detailed:
+            json_start = content.find('{')
+            json_end = content.rfind('}') + 1
+            json_block = content[json_start:json_end] if json_start != -1 and json_end > json_start else ''
+            print("==> Извлечённый JSON:", json_block[:200])
+
             try:
-                parsed = json.loads(content)
+                parsed = json.loads(json_block)
                 assert isinstance(parsed, dict)
                 assert "summary" in parsed
                 assert "regions" in parsed
@@ -98,7 +103,7 @@ async def upload_image(
                 print("==> Ошибка разбора JSON:", parse_err)
                 return JSONResponse(content={
                     "feedback": {
-                        "summary": "Ошибка при разборе расширенного анализа. Вот сырой результат:\n\n" + content,
+                        "summary": "Ошибка при разборе расширенного анализа. Вот полный ответ:\n\n" + content,
                         "regions": []
                     }
                 })
