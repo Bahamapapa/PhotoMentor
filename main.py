@@ -13,7 +13,7 @@ load_dotenv()
 app = FastAPI(
     title="PhotoMentor API",
     description="Анализ фотографии через OpenAI Vision",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 app.add_middleware(
@@ -57,9 +57,8 @@ async def upload_image(
         if detailed:
             system_prompt += (
                 "\n\nЕсли возможно, выдели до 5 ключевых участков, которые можно улучшить. "
-                "Верни JSON-объект следующей структуры:\n\n"
+                "Верни JSON-объект в конце ответа в следующей структуре в блоке ```json ...```:\n\n"
                 '{\n'
-                '  "summary": "общий текст",\n'
                 '  "regions": [\n'
                 '    {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.2, "comment": "описание"},\n'
                 '    ...\n'
@@ -102,11 +101,9 @@ async def upload_image(
             try:
                 parsed = json.loads(json_block)
                 assert isinstance(parsed, dict)
-                assert "summary" in parsed
                 assert "regions" in parsed
                 return JSONResponse(content={
                     "feedback": {
-                        "summary": parsed.get("summary", ""),
                         "regions": parsed.get("regions", []),
                         "full_text": content
                     }
@@ -115,13 +112,12 @@ async def upload_image(
                 print("==> Ошибка разбора JSON:", parse_err)
                 return JSONResponse(content={
                     "feedback": {
-                        "summary": "Ошибка при разборе расширенного анализа. Вот полный ответ:\n\n" + content,
                         "regions": [],
                         "full_text": content
                     }
                 })
 
-        return JSONResponse(content={"feedback": {"summary": content, "regions": [], "full_text": content}})
+        return JSONResponse(content={"feedback": {"regions": [], "full_text": content}})
 
     except Exception as e:
         print("==> КРИТИЧЕСКАЯ ОШИБКА:", str(e))
