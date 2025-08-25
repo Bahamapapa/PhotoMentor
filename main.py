@@ -1,6 +1,7 @@
 import os
 import base64
 import json
+import re
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -88,9 +89,14 @@ async def upload_image(
         print("==> Контент:", content[:200] + "..." if len(content) > 200 else content)
 
         if detailed:
-            json_start = content.find('{')
-            json_end = content.rfind('}') + 1
-            json_block = content[json_start:json_end] if json_start != -1 and json_end > json_start else ''
+            match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if match:
+                json_block = match.group(1)
+            else:
+                json_start = content.find('{')
+                json_end = content.rfind('}') + 1
+                json_block = content[json_start:json_end] if json_start != -1 and json_end > json_start else ''
+
             print("==> Извлечённый JSON:", json_block[:200])
 
             try:
