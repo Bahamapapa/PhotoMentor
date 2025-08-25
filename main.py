@@ -80,8 +80,7 @@ async def upload_image(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
-            max_tokens=1800,
-            response_format="json" if detailed else "text"
+            max_tokens=1800
         )
 
         print("==> Ответ получен")
