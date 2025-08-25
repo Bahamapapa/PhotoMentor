@@ -98,17 +98,24 @@ async def upload_image(
                 assert isinstance(parsed, dict)
                 assert "summary" in parsed
                 assert "regions" in parsed
-                return JSONResponse(content={"feedback": parsed})
+                return JSONResponse(content={
+                    "feedback": {
+                        "summary": parsed.get("summary", ""),
+                        "regions": parsed.get("regions", []),
+                        "full_text": content
+                    }
+                })
             except Exception as parse_err:
                 print("==> Ошибка разбора JSON:", parse_err)
                 return JSONResponse(content={
                     "feedback": {
                         "summary": "Ошибка при разборе расширенного анализа. Вот полный ответ:\n\n" + content,
-                        "regions": []
+                        "regions": [],
+                        "full_text": content
                     }
                 })
 
-        return JSONResponse(content={"feedback": {"summary": content, "regions": []}})
+        return JSONResponse(content={"feedback": {"summary": content, "regions": [], "full_text": content}})
 
     except Exception as e:
         print("==> КРИТИЧЕСКАЯ ОШИБКА:", str(e))
