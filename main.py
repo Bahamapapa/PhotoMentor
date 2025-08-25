@@ -13,7 +13,7 @@ load_dotenv()
 app = FastAPI(
     title="PhotoMentor API",
     description="Анализ фотографии через OpenAI Vision",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.add_middleware(
@@ -41,29 +41,39 @@ async def upload_image(
         contents = await file.read()
         base64_image = base64.b64encode(contents).decode("utf-8")
 
-        system_prompt = (
-            "Ты — профессиональный фотограф и визуальный критик. "
-            "Дай краткую, конструктивную обратную связь на фотографию, используя Markdown. "
-            "Ответ структурируй строго по следующему шаблону:\n\n"
-            "**1. Композиция:**\n\n"
-            "**2. Свет и цвет:**\n\n"
-            "**3. История или эмоция:**\n\n"
-            "**4. Технические параметры:**\n\n"
-            "**Оценка:**\n\n"
-            "**Совет:**\n\n"
-            f"Уровень пользователя: {user_level}."
-        )
-
         if detailed:
-            system_prompt += (
-                "\n\nЕсли возможно, выдели до 5 ключевых участков, которые можно улучшить. "
-                "Верни JSON-объект в конце ответа в следующей структуре в блоке ```json ...```:\n\n"
-                '{\n'
-                '  "regions": [\n'
-                '    {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.2, "comment": "описание"},\n'
-                '    ...\n'
-                '  ]\n'
-                '}'
+            system_prompt = (
+                "Ты — профессиональный фотограф и визуальный критик.\n"
+                "Сначала проанализируй изображение и выдели до 5 ключевых участков, которые требуют улучшения.\n"
+                "Верни JSON-объект **в самом начале** ответа в блоке ```json``` следующей структуры:\n\n"
+                "{\n"
+                "  \"score\": 9.0,\n"
+                "  \"regions\": [\n"
+                "    {\"x\": 0.1, \"y\": 0.2, \"width\": 0.3, \"height\": 0.2, \"comment\": \"описание проблемы\"},\n"
+                "    ...\n"
+                "  ]\n"
+                "}\n\n"
+                "После этого дай полноценный анализ фотографии, согласованный с замечаниями в JSON. Ответ строго по шаблону в Markdown:\n\n"
+                "**1. Композиция:**\n\n"
+                "**2. Свет и цвет:**\n\n"
+                "**3. История или эмоция:**\n\n"
+                "**4. Технические параметры:**\n\n"
+                "**Оценка:**\n\n"
+                "**Совет:**\n\n"
+                f"Уровень пользователя: {user_level}."
+            )
+        else:
+            system_prompt = (
+                "Ты — профессиональный фотограф и визуальный критик.\n"
+                "Дай краткую, конструктивную обратную связь на фотографию, используя Markdown.\n"
+                "Ответ строго по шаблону:\n\n"
+                "**1. Композиция:**\n\n"
+                "**2. Свет и цвет:**\n\n"
+                "**3. История или эмоция:**\n\n"
+                "**4. Технические параметры:**\n\n"
+                "**Оценка:**\n\n"
+                "**Совет:**\n\n"
+                f"Уровень пользователя: {user_level}."
             )
 
         messages = [
@@ -87,38 +97,27 @@ async def upload_image(
         content = response.choices[0].message.content.strip()
         print("==> Контент:", content[:200] + "..." if len(content) > 200 else content)
 
+        feedback_text = content
+        regions_data = {}
+
         if detailed:
             match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
             if match:
                 json_block = match.group(1)
-            else:
-                json_start = content.find('{')
-                json_end = content.rfind('}') + 1
-                json_block = content[json_start:json_end] if json_start != -1 and json_end > json_start else ''
+                try:
+                    regions_data = json.loads(json_block)
+                    feedback_text = content.replace(match.group(0), '').strip()
+                except json.JSONDecodeError as e:
+                    print("==> Ошибка JSONDecode:", e)
 
-            print("==> Извлечённый JSON:", json_block[:200])
-
-            try:
-                parsed = json.loads(json_block)
-                assert isinstance(parsed, dict)
-                assert "regions" in parsed
-                return JSONResponse(content={
-                    "feedback": {
-                        "regions": parsed.get("regions", []),
-                        "full_text": content
-                    }
-                })
-            except Exception as parse_err:
-                print("==> Ошибка разбора JSON:", parse_err)
-                return JSONResponse(content={
-                    "feedback": {
-                        "regions": [],
-                        "full_text": content
-                    }
-                })
-
-        return JSONResponse(content={"feedback": {"regions": [], "full_text": content}})
+        return JSONResponse(content={
+            "feedback": {
+                "full_text": feedback_text,
+                "regions": regions_data.get("regions", []),
+                "score": regions_data.get("score")
+            }
+        })
 
     except Exception as e:
         print("==> КРИТИЧЕСКАЯ ОШИБКА:", str(e))
-        raise HTTPException(status_code=500, detail=f"Ошибка при анализе: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
