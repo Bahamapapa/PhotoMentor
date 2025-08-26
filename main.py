@@ -21,22 +21,24 @@ app.add_middleware(
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 @app.post("/upload")
-async def upload_image(image: UploadFile = File(...), extended: bool = Form(...)):
+async def upload_image(
+    file: UploadFile = File(...),
+    user_level: str = Form(...),
+    detailed: str = Form(...)
+):
     print("==> Обработка запроса начата")
-    contents = await image.read()
 
-    # Сжатие изображения
+    contents = await file.read()
     image_obj = Image.open(io.BytesIO(contents))
-    image_obj.thumbnail((768, 768))
+    image_obj.thumbnail((786, 786))
     buffered = io.BytesIO()
     image_obj.save(buffered, format="PNG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode()
 
-    prompt = build_prompt(extended)
-
-    print("==> Отправка запроса в OpenAI...")
+    prompt = build_prompt(user_level, detailed)
 
     try:
+        print("==> Отправка запроса в OpenAI...")
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[
@@ -49,7 +51,6 @@ async def upload_image(image: UploadFile = File(...), extended: bool = Form(...)
         )
 
         print("==> Ответ получен")
-
         content = response['choices'][0]['message']['content']
         print("==> Контент:", content)
 
@@ -68,29 +69,29 @@ async def upload_image(image: UploadFile = File(...), extended: bool = Form(...)
         print("==> КРИТИЧЕСКАЯ ОШИБКА:", str(e))
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-def build_prompt(extended: bool) -> str:
+
+def build_prompt(user_level: str, detailed: str) -> str:
     base = (
-        "Проанализируй художественную фотографию по следующим параметрам:\n\n"
+        f"Проанализируй художественную фотографию с точки зрения уровня пользователя: {user_level}.\n\n"
         "1. Композиция\n"
         "2. Свет и цвет\n"
         "3. История или эмоция\n"
         "4. Технические параметры\n\n"
-        "Сформулируй общее впечатление — короткую оценку работы (одно-два предложения) и дай один совет по улучшению.\n"
-        "Оцени фотографию по шкале от 1 до 10 и укажи числовую оценку в явном виде (например: 'Оценка: 8/10')."
+        "Сформулируй общее впечатление — короткую оценку работы и дай один совет по улучшению.\n"
+        "Оцени фотографию по шкале от 1 до 10 и укажи числовую оценку (например: 'Оценка: 8/10')."
     )
 
-    if extended:
+    if detailed.lower() == "true":
         return (
             base
             + "\n\nЗатем выдели 1–5 участков на фото, которые требуют внимания. Для каждого укажи:\n"
-            "- координаты (x, y, width, height) в процентах (доли от ширины/высоты, от 0 до 1);\n"
-            "- что конкретно нужно улучшить и почему (например: 'повысить резкость', 'пересвет', 'добавить контраст').\n\n"
-            "Ответ верни строго в формате JSON следующей структуры:\n\n"
+            "- координаты (x, y, width, height) в процентах (от 0 до 1);\n"
+            "- что именно нужно улучшить.\n\n"
+            "Ответ верни строго в формате JSON:\n\n"
             "{\n"
             '  "full_text": "Текст отзыва",\n'
             '  "regions": [\n'
-            '    {"x": ..., "y": ..., "width": ..., "height": ..., "comment": "..."},\n'
-            '    ...\n'
+            '    {"x": ..., "y": ..., "width": ..., "height": ..., "comment": "..."}\n'
             "  ]\n"
             "}\n"
             "Никакого другого текста, только JSON."
