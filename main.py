@@ -7,10 +7,10 @@ import io
 import os
 import json
 import base64
-from openai import OpenAI
+import openai
 
 # Создаём клиента OpenAI
-client = OpenAI()
+client = openai.OpenAI()
 
 app = FastAPI()
 
