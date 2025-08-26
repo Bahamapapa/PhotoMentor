@@ -111,3 +111,4 @@ async def upload(file: UploadFile = File(...), user_level: str = Form(...), deta
         print("==> Не удалось распарсить JSON, используем как текст")
 
     return {"feedback": feedback}
+
