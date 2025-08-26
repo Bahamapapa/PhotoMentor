@@ -1,12 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from PIL import Image
-import openai
-import base64
 import io
-import os
+import openai
 import json
+import os
+import base64
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = FastAPI()
 
@@ -18,83 +21,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+class AnalysisResult(BaseModel):
+    full_text: str
+    regions: list
 
 @app.post("/upload")
-async def upload_image(
+async def analyze_image(
     file: UploadFile = File(...),
     user_level: str = Form(...),
-    detailed: str = Form(...)
+    detailed: str = Form(...),
 ):
-    print("==> Обработка запроса начата")
-
-    contents = await file.read()
-    image_obj = Image.open(io.BytesIO(contents))
-    image_obj.thumbnail((786, 786))
-    buffered = io.BytesIO()
-    image_obj.save(buffered, format="PNG")
-    img_b64 = base64.b64encode(buffered.getvalue()).decode()
-
-    prompt = build_prompt(user_level, detailed)
-
     try:
+        image_bytes = await file.read()
+
+        image = Image.open(io.BytesIO(image_bytes))
+        image.thumbnail((768, 768))
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+
+        detailed_flag = detailed.lower() == "true"
+        prompt = build_prompt(user_level, detailed_flag, img_str)
+
         print("==> Отправка запроса в OpenAI...")
+
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Ты — профессиональный визуальный критик и фотограф."},
-                {"role": "user", "content": prompt},
-                {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}]}
+                {"role": "system", "content": "Ты опытный фотокритик."},
+                {"role": "user", "content": prompt}
             ],
-            max_tokens=2000,
-            temperature=0.7
+            temperature=0.7,
+            max_tokens=1200
         )
 
+        content = response.choices[0].message.content
         print("==> Ответ получен")
-        content = response['choices'][0]['message']['content']
-        print("==> Контент:", content)
 
-        try:
-            start = content.index("{")
-            end = content.rindex("}") + 1
-            json_str = content[start:end]
-            parsed = json.loads(json_str)
-        except Exception as e:
-            print("==> Ошибка разбора JSON:", str(e))
-            parsed = {"full_text": content, "regions": []}
+        extracted_json = extract_json(content)
 
-        return JSONResponse(content=parsed)
+        return {
+            "full_text": content.strip(),
+            "regions": extracted_json.get("regions", [])
+        }
 
     except Exception as e:
         print("==> КРИТИЧЕСКАЯ ОШИБКА:", str(e))
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-def build_prompt(user_level: str, detailed: str) -> str:
-    base = (
-        f"Проанализируй художественную фотографию с точки зрения уровня пользователя: {user_level}.\n\n"
-        "1. Композиция\n"
-        "2. Свет и цвет\n"
-        "3. История или эмоция\n"
-        "4. Технические параметры\n\n"
-        "Сформулируй общее впечатление — короткую оценку работы и дай один совет по улучшению.\n"
-        "Оцени фотографию по шкале от 1 до 10 и укажи числовую оценку (например: 'Оценка: 8/10')."
-    )
-
-    if detailed.lower() == "true":
-        return (
-            base
-            + "\n\nЗатем выдели 1–5 участков на фото, которые требуют внимания. Для каждого укажи:\n"
-            "- координаты (x, y, width, height) в процентах (от 0 до 1);\n"
-            "- что именно нужно улучшить.\n\n"
-            "Ответ верни строго в формате JSON:\n\n"
-            "{\n"
-            '  "full_text": "Текст отзыва",\n'
-            '  "regions": [\n'
-            '    {"x": ..., "y": ..., "width": ..., "height": ..., "comment": "..."}\n'
-            "  ]\n"
-            "}\n"
-            "Никакого другого текста, только JSON."
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
         )
-    else:
-        return base
+
+
+def extract_json(text):
+    try:
+        json_start = text.index("{")
+        json_str = text[json_start:]
+        return json.loads(json_str)
+    except Exception as e:
+        print("==> Ошибка парсинга JSON:", e)
+        return {"regions": []}
+
+
+def build_prompt(user_level, detailed, image_b64):
+    intro = f"""Проанализируй загруженную фотографию (в base64 ниже) как профессиональный фотокритик. Представь, что ты общаешься с фотографом уровня: {user_level}.
+
+Твоя задача — дать отзыв в вежливом, но честном стиле. Укажи:
+
+1. Композиция
+2. Свет и цвет
+3. История или эмоция
+4. Технические параметры
+5. Общая оценка (по 10-балльной шкале)
+6. Совет
+
+"""
+
+    image_part = f"<image>{image_b64}</image>"
+
+    region_hint = """
+Если включён расширенный анализ, добавь JSON-блок:
+{
+  "regions": [
+    {"x": 0.3, "y": 0.2, "width": 0.1, "height": 0.2, "comment": "Комментарий"}
+  ]
+}
+где координаты — относительные (в долях от 0 до 1). Не добавляй ключ summary.
+"""
+
+    return intro + (region_hint if detailed else "") + "\n\n" + image_part
