@@ -32,10 +32,20 @@ async def upload(file: UploadFile = File(...), user_level: str = Form(...), deta
 
     contents = await file.read()
     image = Image.open(BytesIO(contents)).convert("RGB")
+    image.thumbnail((768, 768))  # 🔧 Сжимаем изображение для уменьшения размера base64
     buffered = BytesIO()
     image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
+    # Подготавливаем image_part отдельно от текстового prompt
+    image_part = {
+        "type": "image_url",
+        "image_url": {
+            "url": f"data:image/jpeg;base64,{img_str}"
+        }
+    }
+
+    # Текстовый prompt без base64
     prompt = f"""
 Ты — визуальный критик фотографии. Проанализируй прикреплённое фото.
 
@@ -73,18 +83,15 @@ async def upload(file: UploadFile = File(...), user_level: str = Form(...), deta
 
 Уровень пользователя: {user_level}
 Расширенный анализ: {"да" if detailed else "нет"}
-
-Изображение (base64): data:image/jpeg;base64,{img_str}
 """
 
     print("==> Отправка запроса в OpenAI...")
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }],
+            messages=[
+                {"role": "user", "content": [{"type": "text", "text": prompt}, image_part]}
+            ],
             temperature=0.7
         )
     except Exception as e:
