@@ -4,12 +4,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from PIL import Image
 import io
-import openai
-import json
 import os
+import json
 import base64
+from openai import OpenAI
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Создаём клиента OpenAI
+client = OpenAI()
 
 app = FastAPI()
 
@@ -32,6 +33,7 @@ async def analyze_image(
     detailed: str = Form(...),
 ):
     try:
+        print("==> Обработка запроса начата")
         image_bytes = await file.read()
 
         image = Image.open(io.BytesIO(image_bytes))
@@ -45,7 +47,7 @@ async def analyze_image(
 
         print("==> Отправка запроса в OpenAI...")
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": "Ты опытный фотокритик."},
@@ -57,6 +59,7 @@ async def analyze_image(
 
         content = response.choices[0].message.content
         print("==> Ответ получен")
+        print("==> Контент:", content[:200], "...")
 
         extracted_json = extract_json(content)
 
@@ -94,7 +97,6 @@ def build_prompt(user_level, detailed, image_b64):
 4. Технические параметры
 5. Общая оценка (по 10-балльной шкале)
 6. Совет
-
 """
 
     image_part = f"<image>{image_b64}</image>"
