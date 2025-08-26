@@ -43,15 +43,20 @@ async def analyze_image(
         img_str = base64.b64encode(buffered.getvalue()).decode()
 
         detailed_flag = detailed.lower() == "true"
-        prompt = build_prompt(user_level, detailed_flag, img_str)
+        prompt = build_prompt(user_level, detailed_flag)
 
         print("==> Отправка запроса в OpenAI...")
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4-vision-preview",
             messages=[
-                {"role": "system", "content": "Ты опытный фотокритик."},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
+                    ]
+                }
             ],
             temperature=0.7,
             max_tokens=1200
@@ -86,7 +91,7 @@ def extract_json(text):
         return {"regions": []}
 
 
-def build_prompt(user_level, detailed, image_b64):
+def build_prompt(user_level, detailed):
     intro = f"""Проанализируй загруженную фотографию (в base64 ниже) как профессиональный фотокритик. Представь, что ты общаешься с фотографом уровня: {user_level}.
 
 Твоя задача — дать отзыв в вежливом, но честном стиле. Укажи:
@@ -99,8 +104,6 @@ def build_prompt(user_level, detailed, image_b64):
 6. Совет
 """
 
-    image_part = f"<image>{image_b64}</image>"
-
     region_hint = """
 Если включён расширенный анализ, добавь JSON-блок:
 {
@@ -111,4 +114,4 @@ def build_prompt(user_level, detailed, image_b64):
 где координаты — относительные (в долях от 0 до 1). Не добавляй ключ summary.
 """
 
-    return intro + (region_hint if detailed else "") + "\n\n" + image_part
+    return intro + (region_hint if detailed else "")
